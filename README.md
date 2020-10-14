@@ -1,1 +1,1 @@
-# checkdynip
+# checkdynpublicip
