@@ -1,43 +1,52 @@
-#!/bin/bash
+#!/bin/sh
 # Check actual IP address from ISP
 # And actualize the web site domain name
 # 
 # Parameters
-LOGPATH="/var/log/checkip"
-LOGFILE="/var/log/checkip/checkip.log"
-IPFILE="/var/log/checkip/ipAddress.log"
-OVH_DNS=""
-IPTOCHECKWEBACCESS="8.8.8.8"
-GETPUBLICADDRESS="https://ipinfo.io/ip"
-DESTINATIONEMAIL="xxx@xxx.xxx"
+
+# Load argument from env-file
+# run bash script.sh ./env-file
+source $1
+
+MYUSER="$MYUSER"
+MYGROUP="$MYGROUP"
+LOGPATH="$LOGPATH"
+LOGFILE="$LOGFILE"
+IPFILE="$IPFILE"
+GETPUBLICADDRESS="$GETPUBLICADDRESS"
+MAILRECIPIENT="$MAILRECIPIENT"
+MAILSUBJECT="$MAILSUBJECT"
+MAILMESSAGE="$MAILMESSAGE"
+MAILFROM="$MAILFROM"
+IPTOCHECKWEBACCESS="$IPTOCHECKWEBACCESS"
+OVH_DNS="$OVH_DNS"
+LAST_LINE=""
+IP_EXTRACTED_FROM_FILE=""
 
 # Functions
 check_folder_exist() {
   if [ ! -d $1 ]; then
     create_folder $1
-    chown fred:fred $1
     chmod 777 $1
   fi
 }
 
 create_folder() {
   CREATE_FOLDER= `sudo mkdir $1`
-  chown fred:fred $1
+  chown $USER:$GROUP $1
   chmod 777 $1
 }
 
 check_file_exist() {
   if [ ! -f $1 ]; then
     CREATE_FILE= `sudo touch $1`
-    chown fred:fred $1
-    chmod 777 $1
   fi
   return 0
 }
 
 create_file() {
   CREATE_FILE="sudo echo '' >> $1"
-  chown fred:fred $1
+  chown $USER:$GROUP $1
   chmod 777 $1
 }
 
@@ -111,18 +120,25 @@ exit_program() {
   exit 1
 }
 
-read_last_line_from_log(){
-  return 'tail -n 1 $1'
+read_last_line_from_logFile(){
+  LAST_LINE="$(tail -n 1 $1)"
 }
 
-compare_last_publicIp_and_actual_publicIp() {
-  LASTIPFROMFILE= read_last_line_from_log $IPFILE
-  echo $LASTIPFROMFILE
-  # if [ $LASTIPFROMFILE = $MYIP]
+extract_ip_from_last_line(){
+  IP_EXTRACTED_FROM_FILE="$(echo "$1" | awk -F" " '{print $3}')"
+}
+
+# arg#1 ipExtracedFromFile, arg2 ipInMemory,
+string_comparator() {
+  if [ $1 = $2 ]; then
+	return 0
+  else
+    return 1
+  fi
 }
 
 send_email(){
-  echo "Mail du raspberrypi" | mail -s "Ip Info" ricodoby@hotmail.com
+  echo "$MAILMESSAGE $1" | mail -s "$MAILSUBJECT" $MAILRECIPIENT  -- -f $MAILFROM
 }
 
 # ===============================================
@@ -138,15 +154,31 @@ if [ $check_web_access $IPTOCHECKWEBACCESS = 0 ] ; then
   exit_program "No Internet access"
 fi
 
+# Get the last entry in ipaddress file
+read_last_line_from_logFile "$IPFILE"
+
+# Check if last entry is null
+if [ -z "$LAST_LINE" ]; then
+  : # cmd no op
+else
+  extract_ip_from_last_line "$LAST_LINE"
+fi
+
 # Get Public IP
 if get_my_ip $GETPUBLICADDRESS -eq 0; then
-  echo "myip $MYIP"
   write_ipAddress $MYIP $LOGPATH $IPFILE
 else
   exit_program "Get_Public_Ip => KO"
 fi
 
-
-
-#compare_last_publicIp_and_actual_publicIp
-#EOF
+#Check if LastLine is not null
+#COMPARE VARIABLES ip from file
+if [ -z "$LAST_LINE" ]; then
+  : # cmd no op
+else
+  if ! string_comparator "$IP_EXTRACTED_FROM_FILE" "$MYIP" ; then
+    write_ipAddress $MYIP $LOGPATH $IPFILE
+	send_email $MYIP
+	# => maj chez fournisseur domaine
+  fi
+fi
